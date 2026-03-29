@@ -182,18 +182,18 @@ The most important next step is not more web UI polishing. It is creating a prop
 - backend integration plan
 - architecture docs for offline, WebSocket, and partner support
 
-See [docs/dmp-2026-plan.md](/g:/C4GT/tap-learning-app/docs/dmp-2026-plan.md) for a selection-focused implementation plan.
+See [docs/dmp-2026-plan.md](./docs/dmp-2026-plan.md) for a selection-focused implementation plan.
 
 ## Screenshots
 
 ### Login
 
-![Login](./src/screenshots/login.png)
+![Login](./screenshots/login.png)
 
 ### Dashboard
 
-![Dashboard](./src/screenshots/dashboard.png)
+![Dashboard](./screenshots/dashboard.png)
 
 ### Course
 
-![Course](./src/screenshots/course.png)
+![Course](./screenshots/course.png)

@@ -3,14 +3,29 @@ import { useState } from 'react';
 function Login({ onLogin }) {
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
+  const [error, setError] = useState('');
 
   const handleStart = (event) => {
     event.preventDefault();
 
-    // Keep the form simple and pass the values to the parent screen.
+    const cleanName = name.trim();
+    const cleanMobile = mobile.trim();
+
+    // Keep the form simple, but still avoid moving ahead with empty details.
+    if (!cleanName || !cleanMobile) {
+      setError('Please enter your name and mobile number.');
+      return;
+    }
+
+    if (!/^\d{10}$/.test(cleanMobile)) {
+      setError('Please enter a valid 10-digit mobile number.');
+      return;
+    }
+
+    setError('');
     onLogin({
-      name: name.trim(),
-      mobile: mobile.trim(),
+      name: cleanName,
+      mobile: cleanMobile,
     });
   };
 
@@ -27,7 +42,7 @@ function Login({ onLogin }) {
           <form onSubmit={handleStart}>
             <div className="form-group">
               <label className="form-label" htmlFor="student-name">
-                Name
+                Student Name
               </label>
               <input
                 id="student-name"
@@ -53,9 +68,11 @@ function Login({ onLogin }) {
               />
             </div>
 
+            {error ? <p className="form-error">{error}</p> : null}
+
             <div className="button-row">
               <button type="submit" className="primary-button">
-                Start Learning
+                Login to Dashboard
               </button>
             </div>
           </form>
