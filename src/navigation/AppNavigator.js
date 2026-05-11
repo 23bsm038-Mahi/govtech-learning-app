@@ -17,6 +17,7 @@ function AppNavigator({
   handleLogin,
   handleLogout,
   handleReloadCourses,
+  handleCompleteLesson,
 }) {
   return (
     <NavigationContainer>
@@ -55,6 +56,7 @@ function AppNavigator({
                 onReloadCourses={handleReloadCourses}
                 isOfflineMode={isOfflineMode}
                 isRefreshing={isLoading}
+                refreshError={appError}
               />
             )}
           </Stack.Screen>
@@ -64,6 +66,7 @@ function AppNavigator({
                 {...screenProps}
                 student={student}
                 courses={courses}
+                onCompleteLesson={handleCompleteLesson}
               />
             )}
           </Stack.Screen>

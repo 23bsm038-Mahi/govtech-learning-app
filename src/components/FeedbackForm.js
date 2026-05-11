@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { submitCourseFeedback } from '../services/frappeApi';
 
-function FeedbackForm({ courseId, defaultName }) {
+function FeedbackForm({ courseId, studentId, authToken, defaultName }) {
   const [feedbackName, setFeedbackName] = useState(defaultName || '');
   const [feedback, setFeedback] = useState('');
   const [status, setStatus] = useState('idle');
@@ -28,6 +28,8 @@ function FeedbackForm({ courseId, defaultName }) {
     try {
       const response = await submitCourseFeedback({
         courseId,
+        studentId,
+        authToken,
         studentName: cleanName,
         feedback: cleanFeedback,
       });

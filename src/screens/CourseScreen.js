@@ -15,12 +15,12 @@ import { createTutorChatService } from '../services/chatService';
 import { isModuleEnabled } from '../services/moduleRegistry';
 import { createLocalId } from '../utils/createLocalId';
 
-function CourseScreen({ navigation, route, student, courses }) {
-  const courseId = route.params?.courseId;
+function CourseScreen({ navigation, route, student, courses, onCompleteLesson }) {
+  const courseId = String(route.params?.courseId || '');
   const course = courses.find((item) => item.id === courseId);
   const safeLessons = Array.isArray(course?.lessons) ? course.lessons : [];
   const completedLessons = course
-    ? Math.round((course.progress / 100) * safeLessons.length)
+    ? Math.min(safeLessons.length, Math.floor((course.progress / 100) * safeLessons.length))
     : 0;
 
   const [question, setQuestion] = useState('');
@@ -28,6 +28,8 @@ function CourseScreen({ navigation, route, student, courses }) {
   const [connectionState, setConnectionState] = useState('connecting');
   const [chatError, setChatError] = useState('');
   const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [progressStatus, setProgressStatus] = useState('idle');
+  const [progressMessage, setProgressMessage] = useState('');
   const chatScrollRef = useRef(null);
   const chatServiceRef = useRef(null);
   const showAiTutor = isModuleEnabled('aiTutor');
@@ -84,7 +86,7 @@ function CourseScreen({ navigation, route, student, courses }) {
     return () => {
       chatService.disconnect();
     };
-  }, [course, showAiTutor, student.name]);
+  }, [course?.id, showAiTutor, student.name]);
 
   if (!course) {
     return (
@@ -118,6 +120,34 @@ function CourseScreen({ navigation, route, student, courses }) {
     chatServiceRef.current?.sendMessage(cleanQuestion);
   };
 
+  const handleCompleteLesson = async (lesson, index) => {
+    if (!onCompleteLesson || progressStatus === 'loading') {
+      return;
+    }
+
+    const nextProgress = safeLessons.length
+      ? Math.round(((index + 1) / safeLessons.length) * 100)
+      : 100;
+
+    setProgressStatus('loading');
+    setProgressMessage('');
+
+    const response = await onCompleteLesson({
+      courseId: course.id,
+      lessonId: lesson.id,
+      progress: nextProgress,
+    });
+
+    if (response.success) {
+      setProgressStatus('success');
+      setProgressMessage(response.message || 'Progress updated.');
+      return;
+    }
+
+    setProgressStatus('error');
+    setProgressMessage(response.message || 'Unable to update progress right now.');
+  };
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.heroCard}>
@@ -135,12 +165,39 @@ function CourseScreen({ navigation, route, student, courses }) {
         <Text style={styles.sectionTitle}>Course Lessons</Text>
         {safeLessons.length === 0 ? (
           <Text style={styles.listItem}>No lessons are available for this course yet.</Text>
-        ) : safeLessons.map((lesson, index) => (
-          <View key={lesson.id} style={styles.lessonItem}>
-            <Text style={styles.lessonTitle}>Lesson {index + 1}: {lesson.title}</Text>
-            <Text style={styles.lessonTime}>{lesson.duration}</Text>
-          </View>
-        ))}
+        ) : safeLessons.map((lesson, index) => {
+          const isCompleted = index < completedLessons;
+
+          return (
+            <View key={lesson.id} style={styles.lessonItem}>
+              <View style={styles.lessonTextColumn}>
+                <Text style={styles.lessonTitle}>Lesson {index + 1}: {lesson.title}</Text>
+                <Text style={styles.lessonTime}>
+                  {lesson.duration} {isCompleted ? '| Completed' : ''}
+                </Text>
+              </View>
+
+              <Pressable
+                style={[
+                  styles.lessonButton,
+                  isCompleted || progressStatus === 'loading' ? styles.buttonDisabled : null,
+                ]}
+                onPress={() => handleCompleteLesson(lesson, index)}
+                disabled={isCompleted || progressStatus === 'loading'}
+              >
+                <Text style={styles.lessonButtonText}>
+                  {isCompleted ? 'Done' : 'Mark Done'}
+                </Text>
+              </Pressable>
+            </View>
+          );
+        })}
+
+        {progressMessage ? (
+          <Text style={progressStatus === 'error' ? styles.errorText : styles.successText}>
+            {progressMessage}
+          </Text>
+        ) : null}
       </View>
 
       <View style={styles.sectionCard}>
@@ -231,7 +288,14 @@ function CourseScreen({ navigation, route, student, courses }) {
           </View>
         ) : null}
 
-        {showFeedbackForm ? <FeedbackForm courseId={course.id} defaultName={student.name} /> : null}
+        {showFeedbackForm ? (
+          <FeedbackForm
+            courseId={course.sourceId || course.id}
+            studentId={student.id}
+            authToken={student.authToken}
+            defaultName={student.name}
+          />
+        ) : null}
 
         <Text style={styles.sectionTitle}>Quick Notes</Text>
         <Text style={styles.listItem}>- This course is suitable for beginners.</Text>
@@ -296,9 +360,16 @@ const styles = StyleSheet.create({
     color: '#1f2937',
   },
   lessonItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#e8edf3',
+    gap: 12,
+  },
+  lessonTextColumn: {
+    flex: 1,
   },
   lessonTitle: {
     marginBottom: 4,
@@ -307,6 +378,20 @@ const styles = StyleSheet.create({
   },
   lessonTime: {
     color: '#5f6b7a',
+  },
+  lessonButton: {
+    minWidth: 92,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#e7edf5',
+  },
+  lessonButtonText: {
+    color: '#1f2937',
+    fontSize: 12,
+    fontWeight: '700',
   },
   progressTrack: {
     height: 10,
@@ -399,6 +484,16 @@ const styles = StyleSheet.create({
   chatError: {
     marginBottom: 10,
     color: '#b42318',
+    lineHeight: 20,
+  },
+  errorText: {
+    marginTop: 12,
+    color: '#b42318',
+    lineHeight: 20,
+  },
+  successText: {
+    marginTop: 12,
+    color: '#25603d',
     lineHeight: 20,
   },
   input: {

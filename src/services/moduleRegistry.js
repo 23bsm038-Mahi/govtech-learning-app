@@ -1,16 +1,8 @@
 import moduleWhitelist from '../config/moduleWhitelist';
+import { appConfig } from '../config/appConfig';
 
 function getEnvEnabledModules() {
-  const rawValue = process.env.EXPO_PUBLIC_ENABLED_MODULES || '';
-
-  if (!rawValue.trim()) {
-    return null;
-  }
-
-  return rawValue
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
+  return appConfig.enabledModules;
 }
 
 export function isModuleEnabled(moduleKey) {

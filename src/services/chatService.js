@@ -1,9 +1,14 @@
 import { createLocalId } from '../utils/createLocalId';
+import { appConfig } from '../config/appConfig';
 
-function buildMockAiReply(message, course) {
+function buildSampleAiReply(message, course) {
   const cleanMessage = message.toLowerCase();
-  const completedLessons = Math.round((course.progress / 100) * course.lessons.length);
-  const nextLessonIndex = Math.min(completedLessons, course.lessons.length - 1);
+  const lessons = Array.isArray(course.lessons) ? course.lessons : [];
+  const completedLessons = Math.min(
+    lessons.length,
+    Math.floor((course.progress / 100) * lessons.length)
+  );
+  const nextLessonIndex = Math.min(completedLessons, Math.max(lessons.length - 1, 0));
 
   if (cleanMessage.includes('progress')) {
     return `You have completed ${course.progress}% of this course. Try the next lesson to keep your progress moving.`;
@@ -14,7 +19,11 @@ function buildMockAiReply(message, course) {
     cleanMessage.includes('lesson') ||
     cleanMessage.includes('start')
   ) {
-    return `You can continue with Lesson ${nextLessonIndex + 1}: ${course.lessons[nextLessonIndex].title}.`;
+    if (!lessons.length) {
+      return 'This course does not have lessons published yet. Check back after your learning team updates it.';
+    }
+
+    return `You can continue with Lesson ${nextLessonIndex + 1}: ${lessons[nextLessonIndex].title}.`;
   }
 
   if (
@@ -47,7 +56,7 @@ function buildInitialMessage(studentName, courseTitle) {
   );
 }
 
-function createMockSocket({ studentName, course, onOpen, onMessage, onClose, onError, onStatusChange }) {
+function createSampleTutorSession({ studentName, course, onOpen, onMessage, onClose, onError, onStatusChange }) {
   let connectTimer = null;
   let replyTimer = null;
   let isClosed = false;
@@ -80,7 +89,7 @@ function createMockSocket({ studentName, course, onOpen, onMessage, onClose, onE
           return;
         }
 
-        onMessage(buildChatMessage('ai', buildMockAiReply(message, course)));
+        onMessage(buildChatMessage('ai', buildSampleAiReply(message, course)));
       }, 1000);
     },
 
@@ -103,17 +112,45 @@ function createWebSocketClient({
   onClose,
   onError,
   onStatusChange,
-  onFallbackToMock,
+  onFallbackToSample,
 }) {
   let socket = null;
+  let didFallback = false;
+  let connectTimer = null;
+
+  const fallback = () => {
+    if (didFallback) {
+      return;
+    }
+
+    didFallback = true;
+    clearTimeout(connectTimer);
+
+    if (socket && socket.readyState !== WebSocket.CLOSED) {
+      socket.close();
+    }
+
+    if (appConfig.allowSampleData) {
+      onFallbackToSample();
+      return;
+    }
+
+    onStatusChange('disconnected');
+    onClose();
+  };
 
   return {
     connect() {
       try {
         onStatusChange('connecting');
         socket = new WebSocket(url);
+        connectTimer = setTimeout(() => {
+          onError('Chat connection timed out.');
+          fallback();
+        }, appConfig.chatConnectTimeoutMs);
 
         socket.onopen = () => {
+          clearTimeout(connectTimer);
           onStatusChange('connected');
           onOpen();
 
@@ -149,18 +186,27 @@ function createWebSocketClient({
 
         socket.onerror = () => {
           onStatusChange('disconnected');
-          onError('Chat connection failed. Falling back to local tutor mode.');
-          onFallbackToMock();
+          onError(appConfig.allowSampleData
+            ? 'Chat connection failed. Falling back to local tutor mode.'
+            : 'Chat connection failed. Please try again when the tutor service is available.');
+          fallback();
         };
 
         socket.onclose = () => {
+          if (didFallback) {
+            return;
+          }
+
+          clearTimeout(connectTimer);
           onStatusChange('disconnected');
           onClose();
         };
       } catch (error) {
         onStatusChange('disconnected');
-        onError('Chat connection failed. Falling back to local tutor mode.');
-        onFallbackToMock();
+        onError(appConfig.allowSampleData
+          ? 'Chat connection failed. Falling back to local tutor mode.'
+          : 'Chat connection failed. Please try again when the tutor service is available.');
+        fallback();
       }
     },
 
@@ -182,6 +228,7 @@ function createWebSocketClient({
     },
 
     disconnect() {
+      clearTimeout(connectTimer);
       if (socket) {
         socket.close();
       }
@@ -198,11 +245,11 @@ export function createTutorChatService({
   onError,
   onStatusChange,
 }) {
-  const apiUrl = process.env.EXPO_PUBLIC_TUTOR_WS_URL;
+  const apiUrl = appConfig.tutorWebSocketUrl;
   let activeClient = null;
 
-  const startMockClient = () => {
-    activeClient = createMockSocket({
+  const startSampleClient = () => {
+    activeClient = createSampleTutorSession({
       studentName,
       course,
       onOpen,
@@ -227,14 +274,20 @@ export function createTutorChatService({
           onClose,
           onError,
           onStatusChange,
-          onFallbackToMock: startMockClient,
+          onFallbackToSample: startSampleClient,
         });
 
         activeClient.connect();
         return;
       }
 
-      startMockClient();
+      if (appConfig.allowSampleData) {
+        startSampleClient();
+        return;
+      }
+
+      onStatusChange('disconnected');
+      onError('AI Tutor is not configured for this deployment.');
     },
 
     sendMessage(message) {

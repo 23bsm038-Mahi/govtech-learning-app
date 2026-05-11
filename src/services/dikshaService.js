@@ -2,8 +2,9 @@ import {
   cacheDikshaContent,
   getCachedDikshaContent,
 } from './offlineService';
+import { appConfig, hasConfiguredDikshaBackend } from '../config/appConfig';
 
-const mockDikshaContent = [
+const sampleDikshaContent = [
   {
     identifier: 'do_113987601',
     name: 'Foundations of Problem Solving',
@@ -40,11 +41,31 @@ const mockDikshaContent = [
 ];
 
 function getBaseUrl() {
-  return process.env.EXPO_PUBLIC_DIKSHA_BASE_URL || '';
+  return appConfig.dikshaBaseUrl;
 }
 
 function hasDikshaBackend() {
-  return Boolean(getBaseUrl());
+  return hasConfiguredDikshaBackend();
+}
+
+async function fetchWithTimeout(url, options = {}) {
+  if (typeof AbortController === 'undefined') {
+    return fetch(url, options);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, appConfig.requestTimeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function normalizeDikshaItem(item, index) {
@@ -68,7 +89,7 @@ function normalizeDikshaResponse(responseData) {
   return contentItems.map(normalizeDikshaItem);
 }
 
-function buildMockResponse() {
+function buildSampleResponse() {
   return {
     id: 'api.content.search',
     ver: '1.0',
@@ -77,14 +98,14 @@ function buildMockResponse() {
     },
     responseCode: 'OK',
     result: {
-      count: mockDikshaContent.length,
-      content: mockDikshaContent,
+      count: sampleDikshaContent.length,
+      content: sampleDikshaContent,
     },
   };
 }
 
 async function fetchFromDikshaApi() {
-  const response = await fetch(`${getBaseUrl()}/api/content/search`, {
+  const response = await fetchWithTimeout(`${getBaseUrl()}/api/content/search`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -108,10 +129,10 @@ async function fetchFromDikshaApi() {
   return data;
 }
 
-async function fetchMockDikshaApi() {
+async function fetchSampleDikshaApi() {
   return new Promise((resolve) => {
     setTimeout(() => {
-      resolve(buildMockResponse());
+      resolve(buildSampleResponse());
     }, 500);
   });
 }
@@ -120,9 +141,13 @@ export async function fetchDikshaContent() {
   const cachedItems = await getCachedDikshaContent();
 
   try {
+    if (!hasDikshaBackend() && !appConfig.allowSampleData) {
+      throw new Error('DIKSHA API is not configured for this deployment.');
+    }
+
     const responseData = hasDikshaBackend()
       ? await fetchFromDikshaApi()
-      : await fetchMockDikshaApi();
+      : await fetchSampleDikshaApi();
 
     const items = normalizeDikshaResponse(responseData);
     await cacheDikshaContent(items);

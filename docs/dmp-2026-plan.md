@@ -1,99 +1,42 @@
-# DMP 2026 Selection Plan
+# TAP Learning App Architecture Notes
 
-## What The Reviewers Will Care About
+## Current Implementation
 
-For this problem, selection is likely to depend on whether you show:
+The app is now a React Native Android scaffold for TAP Buddy-style public education deployments. It keeps the original student journey but implements it through mobile app boundaries:
 
-- clear understanding of the real scope
-- mobile-first architectural thinking
-- realistic phased execution
-- ability to integrate with existing systems
-- ability to work in low-resource public education contexts
+- `src/navigation` owns authenticated and unauthenticated navigation
+- `src/hooks/useAppController.js` owns session restore, LMS loading, offline state, and sync triggers
+- `src/services/frappeApi.js` owns Frappe LMS API calls and response normalization
+- `src/services/offlineService.js` owns AsyncStorage cache and sync queues
+- `src/services/chatService.js` owns AI tutor WebSocket sessions and demo fallback
+- `src/services/dikshaService.js` owns DIKSHA content retrieval and cache fallback
+- `src/services/moduleRegistry.js` owns partner module whitelisting
 
-## What To Say In Your Application
+## Production Flow
 
-Use something close to this:
+1. Student enters name and 10-digit mobile number.
+2. App authenticates against Frappe when `EXPO_PUBLIC_FRAPPE_BASE_URL` is configured.
+3. Courses and progress are loaded, normalized, cached, and displayed on the dashboard.
+4. Course detail shows lessons, progress, feedback, and AI tutor access.
+5. Lesson completion updates local progress immediately and sends the update to Frappe.
+6. Feedback and progress updates are queued offline and flushed when connectivity returns.
+7. DIKSHA resources load from the configured content API, with cached content used during outages.
 
-> I have already implemented and tested the core student journey as a frontend prototype: onboarding, dashboard, course detail, and progress flow. I understand that the actual DMP 2026 problem is significantly broader and requires a React Native Android application integrated with TAP's Frappe LMS, WebSocket-based AI tutor chat, offline support, DIKSHA compatibility, and a partner whitelisting model. My plan is to use the current prototype as a validated product baseline and build the actual solution in phased milestones with backend integration from the start.
+## Partner Whitelisting
 
-## Strong Technical Plan
+Default module flags live in `src/config/moduleWhitelist.js`. Deployments can override them without code changes:
 
-### Phase 1
-
-- React Native app setup
-- environment config
-- API client and auth scaffolding
-- onboarding screens
-
-### Phase 2
-
-- fetch student courses from Frappe
-- render dashboard and course details
-- handle loading and error states
-
-### Phase 3
-
-- submissions and progression APIs
-- lesson completion state
-- teacher or system feedback display
-
-### Phase 4
-
-- WebSocket AI tutor chat
-- retry and reconnect behavior
-- message persistence
-
-### Phase 5
-
-- offline caching with sync queue
-- partner module whitelist rules
-- DIKSHA integration boundaries and adapter design
-
-## Risks To Mention
-
-Mentioning risks makes you sound more mature:
-
-- backend API shape may change during integration
-- offline sync conflicts need careful design
-- partner modules need clear security boundaries
-- DIKSHA interoperability may need adapter mapping
-
-## Simple Architecture Pitch
-
-```text
-UI Screens
-  -> App State
-  -> API / WebSocket Services
-  -> Offline Storage Layer
-  -> Frappe LMS / AI Tutor / Partner Modules / DIKSHA
+```bash
+EXPO_PUBLIC_ENABLED_MODULES=localCourses,dikshaContent,aiTutor,feedbackForm
 ```
 
-## Ready-To-Paste Issue Comment
+Supported module keys:
 
-```text
-I reviewed the project scope carefully. The key challenge is not only building screens, but designing a mobile-first React Native architecture that works reliably with TAP's existing Frappe LMS, AI Tutor chat over WebSockets, offline-first sync, and partner whitelisting for public education deployments.
+- `localCourses`
+- `dikshaContent`
+- `aiTutor`
+- `feedbackForm`
 
-I already have a frontend prototype for the core student journey (onboarding, dashboard, course detail, progress), and I would use that as a product baseline while implementing the real solution in phases:
+## Deployment Readiness
 
-1. React Native Android scaffold and project structure
-2. Frappe LMS API integration for onboarding, courses, lessons, and progress
-3. Core learning interaction and submission flows
-4. WebSocket-based AI Tutor chat
-5. Offline caching and sync
-6. DIKSHA interoperability exploration and partner whitelisting architecture
-
-By the mid-point milestone, I aim to deliver a working Android scaffold with onboarding and Frappe-backed learning flows functional end-to-end.
-```
-
-## Honest Positioning
-
-Do not say:
-
-- "The project is complete"
-- "The current repo fully solves the problem"
-
-Say:
-
-- "The current repo validates the user flow"
-- "The next step is migration into the real mobile architecture"
-- "I understand the integration and deployment complexity"
+Use `.env.example` as the source of required runtime configuration and `docs/deployment-runbook.md` for the API contracts and operational checklist.

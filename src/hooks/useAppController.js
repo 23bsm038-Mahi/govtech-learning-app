@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
-import { fetchCourses, loginStudent, sendQueuedFeedback } from '../services/frappeApi';
 import {
+  fetchCourses,
+  loginStudent,
+  sendQueuedFeedback,
+  sendQueuedProgressUpdate,
+  updateCourseProgress,
+} from '../services/frappeApi';
+import {
+  cacheCourses,
   cacheStudent,
+  clearCachedCourses,
   clearCachedStudent,
+  flushQueuedProgressUpdates,
   flushQueuedSubmissions,
   getCachedCourses,
   getCachedStudent,
@@ -12,16 +21,21 @@ import {
 
 function sanitizeCourse(course, index) {
   const safeLessons = Array.isArray(course?.lessons) ? course.lessons : [];
+  const courseId = course?.id || course?.sourceId || `course-${index + 1}`;
 
   return {
-    id: Number(course?.id || index + 1),
+    id: String(courseId),
+    sourceId: String(course?.sourceId || courseId),
     title: course?.title || 'Untitled Course',
     category: course?.category || 'General',
     department: course?.department || 'Learning Team',
     description: course?.description || 'Course description is not available.',
-    progress: Number.isFinite(Number(course?.progress)) ? Number(course.progress) : 0,
+    progress: Math.max(
+      0,
+      Math.min(100, Number.isFinite(Number(course?.progress)) ? Math.round(Number(course.progress)) : 0)
+    ),
     lessons: safeLessons.map((lesson, lessonIndex) => ({
-      id: lesson?.id || lessonIndex + 1,
+      id: String(lesson?.id || lessonIndex + 1),
       title: lesson?.title || 'Untitled Lesson',
       duration: lesson?.duration || '10 min',
     })),
@@ -63,10 +77,8 @@ function useAppController() {
       let cachedCourses = [];
 
       try {
-        [cachedStudent, cachedCourses] = await Promise.all([
-          getCachedStudent(),
-          getCachedCourses(),
-        ]);
+        cachedStudent = await getCachedStudent();
+        cachedCourses = cachedStudent ? await getCachedCourses(cachedStudent.id) : [];
       } catch (error) {
         cachedStudent = null;
         cachedCourses = [];
@@ -74,7 +86,7 @@ function useAppController() {
 
       const safeCachedCourses = sanitizeCourseList(cachedCourses);
 
-      if (!isMounted || !cachedStudent || !safeCachedCourses.length) {
+      if (!isMounted || !cachedStudent) {
         return;
       }
 
@@ -83,6 +95,8 @@ function useAppController() {
 
       if (online) {
         try {
+          await flushQueuedProgressUpdates(sendQueuedProgressUpdate);
+          await flushQueuedSubmissions(sendQueuedFeedback);
           const freshCourses = await fetchCourses(cachedStudent.id, cachedStudent.authToken);
           if (isMounted) {
             setCourses(sanitizeCourseList(freshCourses));
@@ -109,6 +123,7 @@ function useAppController() {
 
       if (online) {
         try {
+          await flushQueuedProgressUpdates(sendQueuedProgressUpdate);
           await flushQueuedSubmissions(sendQueuedFeedback);
         } catch (error) {
           // Keep the app usable even if queued sync fails.
@@ -128,7 +143,7 @@ function useAppController() {
       setStudent(studentProfile);
       await cacheStudent(studentProfile);
 
-      const cachedCourses = sanitizeCourseList(await getCachedCourses());
+      const cachedCourses = sanitizeCourseList(await getCachedCourses(studentProfile.id));
       if (cachedCourses.length) {
         setCourses(cachedCourses);
       }
@@ -164,13 +179,87 @@ function useAppController() {
     setAppError('');
     setIsLoading(false);
     await clearCachedStudent();
+    await clearCachedCourses();
   }, []);
 
   const handleReloadCourses = useCallback(async () => {
-    if (student) {
-      await loadCourses(student);
+    if (!student) {
+      return;
     }
-  }, [loadCourses, student]);
+
+    setIsLoading(true);
+    setAppError('');
+
+    try {
+      await flushQueuedProgressUpdates(sendQueuedProgressUpdate);
+      await flushQueuedSubmissions(sendQueuedFeedback);
+
+      const fetchedCourses = await fetchCourses(student.id, student.authToken);
+      setCourses(sanitizeCourseList(fetchedCourses));
+      setIsOfflineMode(false);
+    } catch (error) {
+      const cachedCourses = sanitizeCourseList(await getCachedCourses(student.id));
+
+      if (cachedCourses.length) {
+        setCourses(cachedCourses);
+        setIsOfflineMode(true);
+      } else {
+        setAppError(error.message || 'Unable to refresh courses right now.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [student]);
+
+  const handleCompleteLesson = useCallback(async ({ courseId, lessonId, progress }) => {
+    if (!student) {
+      return {
+        success: false,
+        message: 'Please login before updating progress.',
+      };
+    }
+
+    const currentCourses = sanitizeCourseList(courses);
+    const course = currentCourses.find((item) => item.id === String(courseId));
+
+    if (!course) {
+      return {
+        success: false,
+        message: 'Course is no longer available.',
+      };
+    }
+
+    const nextProgress = Math.max(course.progress, Math.max(0, Math.min(100, Math.round(progress))));
+    const updatedCourses = currentCourses.map((item) => (
+      item.id === course.id
+        ? {
+            ...item,
+            progress: nextProgress,
+          }
+        : item
+    ));
+
+    setCourses(updatedCourses);
+    await cacheCourses(updatedCourses, student.id);
+
+    try {
+      const response = await updateCourseProgress({
+        studentId: student.id,
+        authToken: student.authToken,
+        courseId: course.id,
+        courseSourceId: course.sourceId,
+        lessonId,
+        progress: nextProgress,
+      });
+
+      return response;
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message || 'Unable to update progress right now.',
+      };
+    }
+  }, [courses, student]);
 
   return {
     student,
@@ -181,6 +270,7 @@ function useAppController() {
     handleLogin,
     handleLogout,
     handleReloadCourses,
+    handleCompleteLesson,
   };
 }
 

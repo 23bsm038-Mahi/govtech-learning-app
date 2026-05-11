@@ -19,6 +19,7 @@ function DashboardScreen({
   onReloadCourses,
   isOfflineMode,
   isRefreshing,
+  refreshError,
 }) {
   const inProgressCount = courses.filter((course) => course.progress > 0).length;
   const showCourses = isModuleEnabled('localCourses');
@@ -64,6 +65,16 @@ function DashboardScreen({
           </View>
         ) : null}
       </View>
+
+      {refreshError ? (
+        <StatusCard
+          title="Unable to refresh learning content"
+          message={refreshError}
+          actionLabel="Try Again"
+          onAction={onReloadCourses}
+          tone="error"
+        />
+      ) : null}
 
       {showCourses ? (
         <>
